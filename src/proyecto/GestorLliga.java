@@ -1,3 +1,6 @@
+package proyecto;
+
+
 
 import java.io.File;
 import java.io.FileWriter;
