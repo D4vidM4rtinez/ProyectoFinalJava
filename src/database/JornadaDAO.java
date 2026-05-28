@@ -1,132 +1,137 @@
 package database;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Types;
+import java.sql.*;
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.List;
+
+import proyecto.Equip;
 import proyecto.Partit;
-import java.time.Year;
 
 public class JornadaDAO {
+    private final Connection conn;
 
-	private int getYear() {
-		return Year.now().getValue();
-	}
+    /**
+     * inicializa la clase de gestion para la base de datos, gestiona Jornada
+     * @param conn	: la conexion a la base de datos
+     */
+    public JornadaDAO(Connection conn) {
+        this.conn = conn;
+    }
+    
+    /**
+     * metodo para conseguir el año actual de manera dinamica
+     * @return	:	el año actual
+     */
+    private int getYear() {
+        return Year.now().getValue();
+    }
 
-	/**
-	 * Insereix un partit inicial a la base de dades associat a una jornada. Si el
-	 * partit ja existeix, fa un UPDATE (per si de cas).
-	 */
-	public void desarPartitInicial(int numJornada, Partit partit) {
-		String sql = "INSERT INTO Jornada (Numero_jornada, Any, EquipA, EquipB, MarcadorA, MarcadorB) "
-				+ "VALUES (?, ?, ?, ?, ?, ?) " + "ON DUPLICATE KEY UPDATE Numero_jornada = VALUES(Numero_jornada)";
+    /**
+     * guarda en la base de datos las jornadas
+     * @param numJornada	:	el numero de la jornada a guardar
+     * @param partit	:	el partido que se tiene que guardar en la jornada
+     */
+    public void desarPartitInicial(int numJornada, Partit partit) {
+        if (conn == null) return;
 
-		ConexionDB conexionDB = new ConexionDB();
-		Connection conn = conexionDB.getDb();
+        String sql = "INSERT INTO Jornada (Numero_jornada, Any, EquipA, EquipB, MarcadorA, MarcadorB) "
+                   + "VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE Numero_jornada = VALUES(Numero_jornada)";
 
-		if (conn == null)
-			return;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, numJornada);
+            ps.setInt(2, getYear());
+            ps.setString(3, partit.getEquipLocal().getNom());
+            ps.setString(4, partit.getEquipVisitant().getNom());
 
-		try (PreparedStatement ps = conn.prepareStatement(sql)) {
-			ps.setInt(1, numJornada);
-			ps.setInt(2, getYear());
-			ps.setString(3, partit.getEquipLocal().getNom());
-			ps.setString(4, partit.getEquipVisitant().getNom());
+            // Si el partido esta pendiente (0 o null) se guarda como NULL a la BBDD
+            if (partit.getGolsLocal() == null || (partit.getGolsLocal() == 0 && partit.getGolsVisitant() == 0)) {
+                ps.setNull(5, Types.INTEGER);
+                ps.setNull(6, Types.INTEGER);
+            } else {
+                ps.setInt(5, partit.getGolsLocal());
+                ps.setInt(6, partit.getGolsVisitant());
+            }
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("Error informatiu en desar el partit inicial: " + e.getMessage());
+        }
+    }
 
-			// Si el partit prové del CSV i encara no té gols (és pendent), guardem NULL a
-			// la BBDD
-			if (partit.getGolsLocal() == 0 && partit.getGolsVisitant() == 0) {
-				ps.setNull(5, Types.INTEGER);
-				ps.setNull(6, Types.INTEGER);
-			} else {
-				ps.setInt(5, partit.getGolsLocal());
-				ps.setInt(6, partit.getGolsVisitant());
-			}
+    /**
+     * Query para conseguir la primera jornada pendent
+     * @return -1 en caso de que no haya jornadas, la jornada en caso de que haya una
+     */
+    public int obtenirPrimeraJornadaPendent() {
+        if (conn == null) return -1;
 
-			ps.executeUpdate();
-		} catch (SQLException e) {
-			System.out.println("Error informatiu en desar el partit inicial: " + e.getMessage());
-		} finally {
-			try {
-				if (conn != null && !conn.isClosed())
-					conn.close();
-			} catch (SQLException e) {
-			}
-		}
-	}
+        String sql = "SELECT MIN(Numero_jornada) AS primera_pendent FROM Jornada WHERE MarcadorA IS NULL AND Any = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, getYear());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    int j = rs.getInt("primera_pendent");
+                    return rs.wasNull() ? -1 : j;
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error informatiu en consultar la jornada pendent: " + e.getMessage());
+        }
+        return -1;
+    }
+    public List<Partit> obtenirPartitsBBDDPerJornada(int numJornada) {
+        List<Partit> partitsBBDD = new ArrayList<>();
+        if (conn == null) return partitsBBDD;
 
-	/**
-	 * Troba el número de la PRIMERA jornada que té com a mínim un partit sense
-	 * resultats (MarcadorA IS NULL).
-	 * 
-	 * @return El número de la jornada, o -1 si ja s'han jugat totes.
-	 */
-	public int obtenirPrimeraJornadaPendent() {
-		String sql = "SELECT MIN(Numero_jornada) AS primera_pendent FROM Jornada WHERE MarcadorA IS NULL AND Any = ?";
+        String sql = "SELECT EquipA, EquipB, MarcadorA, MarcadorB FROM Jornada WHERE Numero_jornada = ? AND Any = ?";
+        
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, numJornada);
+            ps.setInt(2, getYear()); // El mètode getYear() que ja tenies creat
+            
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String nomLocal = rs.getString("EquipA");
+                    String nomVisitant = rs.getString("EquipB");
+                    
+                    // UsemgetObject per si els marcadors són NULL a la base de dades
+                    Integer golsLocal = (Integer) rs.getObject("MarcadorA");
+                    Integer golsVisitant = (Integer) rs.getObject("MarcadorB");
+                    
+                    // Creem les entitats de model
+                    Equip local = new Equip(nomLocal);
+                    Equip visitant = new Equip(nomVisitant);
+                    
+                    Partit partit = new Partit(local, visitant, golsLocal, golsVisitant);
+                    partit.setNumeroJornada(numJornada);
+                    
+                    // Els guardem a la llista
+                    partitsBBDD.add(partit);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error en carregar partits des de la BBDD: " + e.getMessage());
+        }
+        
+        return partitsBBDD;
+    }
 
-		ConexionDB conexionDB = new ConexionDB();
-		Connection conn = conexionDB.getDb();
-		int jornadaPendent = -1;
+    public void actualitzarResultatPartit(int numJornada, String equipA, String equipB, int golsA, int golsB) {
+        if (conn == null) return;
 
-		if (conn == null)
-			return -1;
+        String sql = "UPDATE Jornada SET MarcadorA = ?, MarcadorB = ? "
+                   + "WHERE Numero_jornada = ? AND Any = ? AND EquipA = ? AND EquipB = ?";
 
-		try (PreparedStatement ps = conn.prepareStatement(sql)) {
-			ps.setInt(1, getYear());
-			try (ResultSet rs = ps.executeQuery()) {
-				if (rs.next()) {
-					jornadaPendent = rs.getInt("primera_pendent");
-					if (rs.wasNull()) {
-						jornadaPendent = -1; // Vol dir que el camp era NULL perquè no n'hi ha cap
-					}
-				}
-			}
-		} catch (SQLException e) {
-			System.out.println("Error informatiu en consultar la jornada pendent: " + e.getMessage());
-		} finally {
-			try {
-				if (conn != null && !conn.isClosed())
-					conn.close();
-			} catch (SQLException e) {
-			}
-		}
-		return jornadaPendent;
-	}
-
-	/**
-	 * Actualitza els gols d'un partit concret introduïts des de la Interfície
-	 * Gràfica (GUI).
-	 */
-	public void actualitzarResultatPartit(int numJornada, String equipA, String equipB, int golsA, int golsB) {
-		String sql = "UPDATE Jornada SET MarcadorA = ?, MarcadorB = ? "
-				+ "WHERE Numero_jornada = ? AND Any = ? AND EquipA = ? AND EquipB = ?";
-
-		ConexionDB conexionDB = new ConexionDB();
-		Connection conn = conexionDB.getDb();
-
-		if (conn == null)
-			return;
-
-		try (PreparedStatement ps = conn.prepareStatement(sql)) {
-			ps.setInt(1, golsA);
-			ps.setInt(2, golsB);
-			ps.setInt(3, numJornada);
-			ps.setInt(4, getYear());
-			ps.setString(5, equipA);
-			ps.setString(6, equipB);
-
-			ps.executeUpdate();
-		} catch (SQLException e) {
-			System.out.println("Error informatiu en actualitzar el resultat a la BBDD: " + e.getMessage());
-		} finally {
-			try {
-				if (conn != null && !conn.isClosed())
-					conn.close();
-			} catch (SQLException e) {
-			}
-		}
-	}
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, golsA);
+            ps.setInt(2, golsB);
+            ps.setInt(3, numJornada);
+            ps.setInt(4, getYear());
+            ps.setString(5, equipA);
+            ps.setString(6, equipB);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("Error informatiu en actualitzar el resultat: " + e.getMessage());
+        }
+    }
 }

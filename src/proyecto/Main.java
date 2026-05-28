@@ -1,29 +1,30 @@
 package proyecto;
 
+import javax.swing.SwingUtilities;
 
 public class Main {
     public static void main(String[] args) {
-        // 1. Instanciamos el gestor de la liga
+        System.out.println("Iniciant el projecte de Gestió Esportiva...");
+
+        // 1. Inicialitza el controlador (conecta automàticament a la BBDD)
         GestorLliga app = new GestorLliga();
 
-        // 2. Definimos la ruta del archivo CSV a probar
+        // 2. Ruta del fitxer de dades
         String rutaCsv = "partits.csv";
 
-        System.out.println("Iniciant el projecte...");
-
-        // 3. Cargamos los datos
+        // 3. Executa la lògica de fitxers i persistència inicial
         app.carregarDadesCsv(rutaCsv);
+        app.guardarDadesACorpusBBDD();
+        
+        // 4. Inicia la Interfície Gràfica passant el controlador (MVC)
+        SwingUtilities.invokeLater(() -> {
+            new LeagueGUI(app).setVisible(true);
+        });
 
-        // 4. Mostramos el resultado por consola (Simulando la futura GUI)
-        System.out.println("\n--- EQUIPS DETECTATS ---");
-        app.getEquipsPerAGUI().forEach(equip -> System.out.println("- " + equip));
-
-        System.out.println("\n--- JORNADES I PARTITS PROCESSATS ---");
-        for (Jornada j : app.getJornadesPerAGUI()) {
-            System.out.println("\n" + j);
-            for (Partit p : j.getPartits()) {
-                System.out.println("  -> " + p);
-            }
-        }
+        // Huc de tancament segur de la BBDD en tancar l'aplicació
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Tancant connexions de forma segura...");
+            app.tancarConnexions();
+        }));
     }
 }

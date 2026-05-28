@@ -1,18 +1,24 @@
 package proyecto;
 
-
 import java.util.Objects;
 
 public class Equip {
+    private int id;
     private String nom;
 
     public Equip(String nom) {
         this.nom = nom.trim();
     }
 
-    public String getNom() {
-        return nom;
+    public Equip(int id, String nom) {
+        this.id = id;
+        this.nom = nom.trim();
     }
+
+    public int getId() { return id; }
+    public void setId(int id) { this.id = id; }
+    
+    public String getNom() { return nom; }
 
     @Override
     public boolean equals(Object o) {

@@ -1,62 +1,56 @@
 package proyecto;
 
-
-
-import java.io.File;
-import java.io.FileWriter;
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
+import database.ConexionDB;
+import database.EquipDAO;
+import database.JornadaDAO;
+import java.io.*;
 import java.util.*;
 
 public class GestorLliga {
 
     private final Map<Integer, Jornada> jornadesMap = new TreeMap<>();
     private final Set<Equip> equipsUnics = new HashSet<>();
-    private final database.EquipDAO equipDAO = new database.EquipDAO();
-    private final database.JornadaDAO jornadaDAO = new database.JornadaDAO();
+    
+    private ConexionDB conexionDB;
+    private EquipDAO equipDAO;
+    private JornadaDAO jornadaDAO;
 
-    /**
-     * Carga el archivo CSV adaptándose tanto si tiene 3 columnas (solo partidos)
-     * como si ya tiene 5 columnas (con goles incorporados).
-     */
+    public GestorLliga() {
+        // Requeriment d: Es connecta abans de començar a treballar
+        this.conexionDB = new ConexionDB();
+        this.equipDAO = new EquipDAO(conexionDB.getDb());
+        this.jornadaDAO = new JornadaDAO(conexionDB.getDb());
+    }
+
     public void carregarDadesCsv(String rutaFitxer) {
         File fitxer = new File(rutaFitxer);
 
         if (!fitxer.exists()) {
-            System.out.println(" El fitxer '" + rutaFitxer + "' no existeix. Creant un fitxer nou amb dades d'exemple...");
             try (FileWriter fw = new FileWriter(fitxer)) {
                 fw.write("Jornada,EquipLocal,EquipVisitant,GolsLocal,GolsVisitant\n");
-                fw.write("1,Barça,Madrid,2,1\n");
-                fw.write("1,Girona,Espanyol,3,0\n");
-                System.out.println(" Fitxer '" + rutaFitxer + "' creat correctament.");
+                fw.write("1,Barça,Madrid,0,0\n");
+                fw.write("1,Girona,Espanyol,0,0\n");
+                fw.write("2,Madrid,Girona,0,0\n");
+                fw.write("2,Espanyol,Barça,0,0\n");
             } catch (IOException e) {
-                System.err.println(" Error en crear el fitxer automàticament: " + e.getMessage());
+                System.err.println("Error en crear el fitxer automàticament: " + e.getMessage());
                 return;
             }
         }
 
         String linia;
-        String separadorCsv = ",";
         int comptadorLinia = 0;
 
         try (BufferedReader br = new BufferedReader(new FileReader(fitxer))) {
-
             while ((linia = br.readLine()) != null) {
                 comptadorLinia++;
 
-                // Ignoramos la cabecera
-                if (comptadorLinia == 1 && linia.toLowerCase().contains("jornada")) {
-                    continue;
-                }
-
+                if (comptadorLinia == 1 && linia.toLowerCase().contains("jornada")) continue;
                 if (linia.trim().isEmpty()) continue;
 
-                String[] dades = linia.split(separadorCsv);
-
-                // Controlamos que al menos tenga los datos de los equipos (3 columnas)
+                String[] dades = linia.split(",");
                 if (dades.length < 3) {
-                    System.err.println(" Error a la línia " + comptadorLinia + ": Format incorrecte (massa pocs camps).");
+                    System.err.println("Error a la línia " + comptadorLinia + ": Format incorrecte.");
                     continue;
                 }
 
@@ -65,9 +59,8 @@ public class GestorLliga {
                     String nomLocal = dades[1].trim();
                     String nomVisitant = dades[2].trim();
 
-                    // Si el CSV no tiene goles (longitud 3), ponemos 0 por defecto. Si los tiene, los lee.
-                    int golsLocal = 0;
-                    int golsVisitant = 0;
+                    Integer golsLocal = null;
+                    Integer golsVisitant = null;
 
                     if (dades.length >= 5) {
                         golsLocal = Integer.parseInt(dades[3].trim());
@@ -75,7 +68,7 @@ public class GestorLliga {
                     }
 
                     if (nomLocal.equalsIgnoreCase(nomVisitant)) {
-                        System.err.println("️ Error a la línia " + comptadorLinia + ": Un equip no pot jugar contra si mateix.");
+                        System.err.println("Error a la línia " + comptadorLinia + ": Un equip no pot jugar contra si mateix.");
                         continue;
                     }
 
@@ -90,42 +83,33 @@ public class GestorLliga {
 
                     jornadesMap.putIfAbsent(numJornada, new Jornada(numJornada));
                     Partit nouPartit = new Partit(local, visitant, golsLocal, golsVisitant);
+                    nouPartit.setNumeroJornada(numJornada);
                     jornadesMap.get(numJornada).afegirPartit(nouPartit);
 
                 } catch (NumberFormatException e) {
-                    System.err.println("️ Error a la línia " + comptadorLinia + ": Dades numèriques invàlides.");
+                    System.err.println("Error a la línia " + comptadorLinia + ": Dades numèriques invàlides.");
                 }
             }
-            System.out.println(" Procés de càrrega finalitzat correctament.");
-
+            System.out.println("Procés de càrrega del CSV finalitzat.");
         } catch (IOException e) {
-            System.err.println(" Error crític: No s'ha pogut llegir el fitxer CSV. " + e.getMessage());
+            System.err.println("Error crític en llegir el fitxer CSV: " + e.getMessage()); // Requeriment b.iv
         }
     }
 
-    /*
-      sobreescribir el archivo.
-     */
-    public void guardarDadesCsv(String rutaFitxer) {
-        try (FileWriter fw = new FileWriter(rutaFitxer)) {
-            // Escribimos la cabecera estándar de 5 columnas
-            fw.write("Jornada,EquipLocal,EquipVisitant,GolsLocal,GolsVisitant\n");
-
-            // Recorremos todas las jornadas y sus partidos para guardarlos
+    public void guardarDadesACorpusBBDD() {
+        System.out.println("Iniciant la càrrega de dades a la base de dades...");
+        try {
+            for (Equip equip : equipsUnics) {
+                equipDAO.inserirEquip(equip);
+            }
             for (Jornada jornada : jornadesMap.values()) {
-                for (Partit partit : jornada.getPartits()) { // Asegúrate de que Jornada tiene getPartits()
-                    fw.write(String.format("%d,%s,%s,%d,%d\n",
-                            jornada.getNumero(), // O el método que devuelva el id de la jornada
-                            partit.getEquipLocal().getNom(),
-                            partit.getEquipVisitant().getNom(),
-                            partit.getGolsLocal(),
-                            partit.getGolsVisitant()
-                    ));
+                for (Partit partit : jornada.getPartits()) {
+                    jornadaDAO.desarPartitInicial(jornada.getNumero(), partit);
                 }
             }
-            System.out.println(" Fitxer CSV modificat i guardat correctament a: " + rutaFitxer);
-        } catch (IOException e) {
-            System.err.println(" Error en guardar les modificacions al CSV: " + e.getMessage());
+            System.out.println("La càrrega a la base de dades ha finalitzat correctament."); // Requeriment b.v
+        } catch (Exception e) {
+            System.err.println("Error en carregar les dades a la BBDD: " + e.getMessage()); // Requeriment b.iv
         }
     }
 
@@ -136,49 +120,20 @@ public class GestorLliga {
                 .orElse(null);
     }
 
-    public List<Equip> getEquipsPerAGUI() {
-        List<Equip> llista = new ArrayList<>(equipsUnics);
-        llista.sort(Comparator.comparing(Equip::getNom));
-        return llista;
+    public Collection<Jornada> getJornadesPerAGUI() { return jornadesMap.values(); }
+    
+    public int obtenirJornadaActualGUI() { return jornadaDAO.obtenirPrimeraJornadaPendent(); }
+    
+    public List<Partit> obtenirPartitsDeLaBBDD(int jornada) {
+        // Crida al DAO per descarregar els partits reals de MySQL
+        return jornadaDAO.obtenirPartitsBBDDPerJornada(jornada);
     }
 
-    public Collection<Jornada> getJornadesPerAGUI() {
-        return jornadesMap.values();
-    }
-
-    /**
-     * Mètode per agafar el que s'ha llegit del CSV i persistir-ho a MySQL
-     */
-    public void guardarDadesACorpusBBDD() {
-        System.out.println("Iniciant la càrrega de dades a la base de dades...");
-        
-        // 1. Guardar equips únics (primer es guarden els equips per les FK)
-        for (Equip equip : equipsUnics) {
-            equipDAO.inserirEquip(equip);
-        }
-
-        // 2. Guardar jornades i partits
-        for (Jornada jornada : jornadesMap.values()) {
-            for (Partit partit : jornada.getPartits()) {
-                jornadaDAO.desarPartitInicial(jornada.getNumero(), partit);
-            }
-        }
-        
-        // Requeriment: Quan la càrrega finalitzi correctament, ho indica per pantalla
-        System.out.println("La càrrega a la base de dades ha finalitzat correctament.");
-    }
-
-    /**
-     * Mètode que cridarà la teva GUI al iniciar-se per saber quina jornada mostrar
-     */
-    public int obtenirJornadaActualGUI() {
-        return jornadaDAO.obtenirPrimeraJornadaPendent();
-    }
-
-    /**
-     * Mètode que cridarà el botó "Desar" de la teva GUI quan es validin els números
-     */
     public void guardarResultatDesDeGUI(int jornada, String local, String visitant, int golsL, int golsV) {
         jornadaDAO.actualitzarResultatPartit(jornada, local, visitant, golsL, golsV);
+    }
+
+    public void tancarConnexions() {
+        if (conexionDB != null) conexionDB.tancar();
     }
 }
