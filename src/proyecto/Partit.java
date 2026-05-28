@@ -1,3 +1,6 @@
+package proyecto;
+
+
 public class Partit {
     private Equip equipLocal;
     private Equip equipVisitant;

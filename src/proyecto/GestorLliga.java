@@ -1,3 +1,6 @@
+package proyecto;
+
+
 
 import java.io.File;
 import java.io.FileWriter;
@@ -10,6 +13,8 @@ public class GestorLliga {
 
     private final Map<Integer, Jornada> jornadesMap = new TreeMap<>();
     private final Set<Equip> equipsUnics = new HashSet<>();
+    private final database.EquipDAO equipDAO = new database.EquipDAO();
+    private final database.JornadaDAO jornadaDAO = new database.JornadaDAO();
 
     /**
      * Carga el archivo CSV adaptándose tanto si tiene 3 columnas (solo partidos)
@@ -139,5 +144,41 @@ public class GestorLliga {
 
     public Collection<Jornada> getJornadesPerAGUI() {
         return jornadesMap.values();
+    }
+
+    /**
+     * Mètode per agafar el que s'ha llegit del CSV i persistir-ho a MySQL
+     */
+    public void guardarDadesACorpusBBDD() {
+        System.out.println("Iniciant la càrrega de dades a la base de dades...");
+        
+        // 1. Guardar equips únics (primer es guarden els equips per les FK)
+        for (Equip equip : equipsUnics) {
+            equipDAO.inserirEquip(equip);
+        }
+
+        // 2. Guardar jornades i partits
+        for (Jornada jornada : jornadesMap.values()) {
+            for (Partit partit : jornada.getPartits()) {
+                jornadaDAO.desarPartitInicial(jornada.getNumero(), partit);
+            }
+        }
+        
+        // Requeriment: Quan la càrrega finalitzi correctament, ho indica per pantalla
+        System.out.println("La càrrega a la base de dades ha finalitzat correctament.");
+    }
+
+    /**
+     * Mètode que cridarà la teva GUI al iniciar-se per saber quina jornada mostrar
+     */
+    public int obtenirJornadaActualGUI() {
+        return jornadaDAO.obtenirPrimeraJornadaPendent();
+    }
+
+    /**
+     * Mètode que cridarà el botó "Desar" de la teva GUI quan es validin els números
+     */
+    public void guardarResultatDesDeGUI(int jornada, String local, String visitant, int golsL, int golsV) {
+        jornadaDAO.actualitzarResultatPartit(jornada, local, visitant, golsL, golsV);
     }
 }
